@@ -11,7 +11,9 @@ import {
   Play,
   Copy,
   Check,
-  Cpu
+  Cpu,
+  Globe,
+  AlertTriangle
 } from 'lucide-react';
 import { DevToolType } from '../types/debug';
 import { runDeveloperTool, DevToolResult } from '../services/devToolsService';
@@ -44,7 +46,7 @@ export const DevToolsWorkspace: React.FC<DevToolsWorkspaceProps> = ({ initialToo
       const res = runDeveloperTool(activeTool, inputCode, selectedLang);
       setResult(res);
       setIsRunning(false);
-    }, 1000);
+    }, 400);
   };
 
   const handleCopyCode = (text: string) => {
@@ -72,14 +74,35 @@ export const DevToolsWorkspace: React.FC<DevToolsWorkspaceProps> = ({ initialToo
           </div>
         </div>
 
-        <button
-          onClick={handleRunTool}
-          disabled={isRunning}
-          className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 font-semibold text-white text-xs shadow-glow-brand hover:from-brand-500 hover:to-indigo-500 transition-all disabled:opacity-50"
-        >
-          {isRunning ? <Cpu className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-          <span>{isRunning ? 'Analyzing...' : `Run ${currentToolInfo.label}`}</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 rounded-xl bg-dark-800 px-3 py-1.5 border border-white/10 text-xs">
+            <Globe className="w-3.5 h-3.5 text-brand-400" />
+            <span className="text-slate-400 text-[11px]">Language:</span>
+            <select
+              value={selectedLang}
+              onChange={(e) => setSelectedLang(e.target.value)}
+              className="bg-transparent font-medium text-white focus:outline-none cursor-pointer text-xs"
+            >
+              <option value="javascript" className="bg-dark-900 text-white">JavaScript</option>
+              <option value="typescript" className="bg-dark-900 text-white">TypeScript</option>
+              <option value="python" className="bg-dark-900 text-white">Python</option>
+              <option value="java" className="bg-dark-900 text-white">Java</option>
+              <option value="cpp" className="bg-dark-900 text-white">C / C++</option>
+              <option value="sql" className="bg-dark-900 text-white">SQL</option>
+              <option value="go" className="bg-dark-900 text-white">Go</option>
+              <option value="rust" className="bg-dark-900 text-white">Rust</option>
+            </select>
+          </div>
+
+          <button
+            onClick={handleRunTool}
+            disabled={isRunning}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 font-semibold text-white text-xs shadow-glow-brand hover:from-brand-500 hover:to-indigo-500 transition-all disabled:opacity-50"
+          >
+            {isRunning ? <Cpu className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            <span>{isRunning ? 'Analyzing...' : `Run ${currentToolInfo.label}`}</span>
+          </button>
+        </div>
       </div>
 
       {/* Tools Selector Navigation */}
@@ -109,28 +132,35 @@ export const DevToolsWorkspace: React.FC<DevToolsWorkspaceProps> = ({ initialToo
         {/* Code Input */}
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <label className="font-semibold text-white">Input Code / Stack Trace / Log Stream</label>
+            <label className="font-semibold text-white">Input Source Code / Logs</label>
             <span>Target Language: {selectedLang.toUpperCase()}</span>
           </div>
           <textarea
             value={inputCode}
-            onChange={(e) => setInputCode(e.target.value)}
-            placeholder={`Paste content for ${currentToolInfo.label}...`}
-            rows={8}
+            onChange={(e) => {
+              setInputCode(e.target.value);
+            }}
+            placeholder={`Paste source code for ${currentToolInfo.label}...`}
+            rows={10}
             className="w-full rounded-2xl bg-dark-900 border border-white/10 p-4 font-mono text-xs text-slate-200 focus:border-brand-500 focus:outline-none placeholder:text-slate-600"
           />
         </div>
 
         {/* Results Display */}
         {result && (
-          <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6 animate-fadeIn">
+          <div className={`glass-panel p-6 rounded-2xl border space-y-6 animate-fadeIn ${
+            result.isError ? 'border-rose-500/40 bg-rose-950/10' : 'border-white/10'
+          }`}>
             
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div>
-                <h3 className="text-base font-bold text-white">{result.title}</h3>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  {result.isError && <AlertTriangle className="w-5 h-5 text-rose-400" />}
+                  <span>{result.title}</span>
+                </h3>
                 <p className="text-xs text-slate-300 mt-0.5">{result.summary}</p>
               </div>
-              {result.score !== undefined && (
+              {result.score !== undefined && !result.isError && (
                 <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold font-mono">
                   <span>Score: {result.score}/100</span>
                 </div>
@@ -145,7 +175,7 @@ export const DevToolsWorkspace: React.FC<DevToolsWorkspaceProps> = ({ initialToo
                   {sec.type === 'list' && (
                     <ul className="space-y-1.5 text-xs text-slate-200 font-mono">
                       {sec.content.map((item: string, i: number) => (
-                        <li key={i} className="p-2 rounded-lg bg-dark-900/60 border border-white/5">
+                        <li key={i} className="p-2.5 rounded-lg bg-dark-900/60 border border-white/5 leading-relaxed">
                           {item}
                         </li>
                       ))}
@@ -153,7 +183,7 @@ export const DevToolsWorkspace: React.FC<DevToolsWorkspaceProps> = ({ initialToo
                   )}
 
                   {sec.type === 'text' && (
-                    <div className="p-3 rounded-xl bg-dark-900 text-xs text-slate-300 border border-white/5">
+                    <div className="p-3.5 rounded-xl bg-dark-900 text-xs text-slate-300 border border-white/5 leading-relaxed">
                       {sec.content}
                     </div>
                   )}

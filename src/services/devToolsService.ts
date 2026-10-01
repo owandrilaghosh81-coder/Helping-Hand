@@ -1,10 +1,12 @@
 import { DevToolType } from '../types/debug';
+import { analyzeCodeStructure, AnalysisOutput } from './codeAnalyzerService';
 
 export interface DevToolResult {
   toolType: DevToolType;
   title: string;
   summary: string;
   score?: number;
+  isError?: boolean;
   sections: Array<{
     heading: string;
     type: 'code' | 'list' | 'text' | 'table';
@@ -13,36 +15,63 @@ export interface DevToolResult {
 }
 
 export function runDeveloperTool(toolType: DevToolType, input: string, language: string = 'javascript'): DevToolResult {
-  const content = input || '// Example code snippet for analysis';
+  const content = input || '';
 
   switch (toolType) {
-    case 'analyzer':
+    case 'analyzer': {
+      const analysis: AnalysisOutput = analyzeCodeStructure(content, language);
+
+      if (analysis.isError) {
+        return {
+          toolType: 'analyzer',
+          title: analysis.errorTitle || 'Analyzer Error',
+          summary: analysis.summary,
+          isError: true,
+          sections: [
+            {
+              heading: 'Diagnostic Details',
+              type: 'text',
+              content: analysis.errorMessage || 'Unable to parse source code.'
+            }
+          ]
+        };
+      }
+
+      const m = analysis.metrics!;
+      const smellsList = analysis.smells.length === 0
+        ? ['✅ No evidence-backed code smells or deep nesting issues detected in submitted source.']
+        : analysis.smells.map(
+            (s) => `[${s.severity.toUpperCase()}] Line ${s.lineNumber}: ${s.title} — ${s.explanation} (Code: \`${s.snippet}\`)`
+          );
+
       return {
         toolType: 'analyzer',
         title: 'Code Structure & Complexity Analysis',
-        summary: 'Analyzed code complexity, maintainability index, and potential code smells.',
-        score: 84,
+        summary: analysis.summary,
+        score: m.qualityScore,
         sections: [
           {
-            heading: 'Metrics Summary',
+            heading: 'Metrics Summary (Calculated from Source)',
             type: 'list',
             content: [
-              'Cyclomatic Complexity: 4 (Low Risk)',
-              'Maintainability Index: 88/100 (Excellent)',
-              'Estimated Cognitive Load: Moderate',
-              'Lines of Code (LOC): ' + content.split('\n').length
+              `Total Lines of Code (LOC): ${m.totalLines}`,
+              `Source Lines of Code (SLOC, excluding comments & blanks): ${m.codeLines}`,
+              `Comment Lines: ${m.commentLines}`,
+              `Blank Lines: ${m.blankLines}`,
+              `Cyclomatic Complexity V(G): ${m.cyclomaticComplexity} (${m.cyclomaticComplexity <= 5 ? 'Low Risk' : m.cyclomaticComplexity <= 10 ? 'Moderate' : 'High Risk'})`,
+              `Cognitive Complexity (Nesting): ${m.cognitiveComplexity}`,
+              `Maintainability Index (MI): ${m.maintainabilityIndex}/100`,
+              `Quality Score: ${m.qualityScore}/100 (Formula: MI - [Smells × 10])`
             ]
           },
           {
-            heading: 'Detected Code Smells',
+            heading: 'Evidence-Based Code Smells & Warnings',
             type: 'list',
-            content: [
-              '⚠️ Potential Missing Type Annotations: Parameter inputs lack explicit static type checks.',
-              '💡 Defensive Guarding Opportunity: High nesting level inside main control loop.'
-            ]
+            content: smellsList
           }
         ]
       };
+    }
 
     case 'stacktrace':
       return {

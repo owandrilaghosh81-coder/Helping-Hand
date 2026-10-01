@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "tsx src/tests/debuggingEngine.test.ts",
+    "test": "npx tsx src/tests/debuggingEngine.test.ts && npx tsx src/tests/codeAnalyzer.test.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },
