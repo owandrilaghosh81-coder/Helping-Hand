@@ -231,7 +231,7 @@ export const AnalysisResultView: React.FC<AnalysisResultViewProps> = ({
 
             <div className="flex items-center gap-3">
               <span className={`px-2.5 py-1 rounded-full text-xs font-bold font-mono uppercase ${
-                result.validation.status === 'PASSED'
+                result.validation.status === 'TEST PASSED' || result.validation.status === 'STATIC CHECK PASSED'
                   ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                   : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
               }`}>

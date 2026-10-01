@@ -2,6 +2,7 @@ import { AnalysisResult } from '../../types/debug';
 import { evaluateRules } from '../../rules/engine';
 import { callGeminiApi } from './client';
 import { storage } from '../storage';
+import { validateFixResult } from '../validationService';
 
 export async function analyzeCodingError(
   errorText: string,
@@ -21,22 +22,31 @@ export async function analyzeCodingError(
 
   // 2. If API Key is present, query Google Gemini for deep AI reasoning
   try {
+    const targetLang = selectedLang !== 'auto' ? selectedLang : (ruleResult?.language || 'python');
+
     const prompt = `Analyze this developer coding issue:
-Target Language: ${selectedLang}
+Target Language: ${targetLang}
 Error Output / Stacktrace: ${errorText || 'None provided'}
 Source Code: ${codeText || 'None provided'}
 User Description: ${describeText || 'None provided'}
 Application Logs: ${logText || 'None provided'}
 
-Rule-Engine Initial Assessment: ${JSON.stringify({
+Rule-Engine Baseline Assessment: ${JSON.stringify({
       errorType: ruleResult?.errorType,
       summary: ruleResult?.summary,
-      rootCause: ruleResult?.rootCause
+      rootCause: ruleResult?.rootCause,
+      suggestedFix: ruleResult?.suggestedFix
     })}
+
+CRITICAL INSTRUCTIONS:
+1. You MUST preserve the Target Language (${targetLang}). Python fixes MUST ONLY use Python syntax. NEVER wrap Python in JavaScript try/catch or use console.log.
+2. Make the SMALLEST reasonable change to fix the root cause.
+3. Treat the original code as immutable input. Change only the line or expression containing the bug.
+4. Do NOT invent unprovided code context.
 
 Respond ONLY with valid JSON in this exact structure:
 {
-  "language": "detected language",
+  "language": "${targetLang}",
   "errorType": "Short error title",
   "severity": "informational|warning|important|critical",
   "summary": "1 sentence clear overview",
@@ -45,29 +55,55 @@ Respond ONLY with valid JSON in this exact structure:
   "technicalWhy": "Deeper technical/architecture details for experienced devs",
   "rootCause": "Direct most likely root cause",
   "rootCauseStatus": "confirmed|likely|possible",
-  "location": { "file": "filename", "line": 10, "column": 5, "functionName": "func" },
-  "howToFix": ["Step 1", "Step 2", "Step 3"],
-  "originalCode": "original broken snippet",
-  "suggestedFix": "corrected code snippet",
+  "location": { "file": "filename", "line": 2, "column": 1, "functionName": "func" },
+  "howToFix": ["Step 1", "Step 2"],
+  "originalCode": "exact original broken snippet",
+  "suggestedFix": "corrected code snippet in ${targetLang}",
   "explainFix": "Why this fix works and what changed",
   "alternativeFixes": [
-    { "title": "Alternative Approach", "category": "Alternative", "code": "code", "explanation": "exp", "tradeoffs": "tradeoffs" }
+    { "title": "Alternative Approach", "category": "Alternative", "code": "code snippet", "explanation": "exp", "tradeoffs": "tradeoffs" }
   ],
   "preventionTips": ["Tip 1", "Tip 2"],
   "confidence": "High|Medium|Low"
 }`;
 
-    const systemInstruction = `You are Helping Hand AI, an expert developer debugging assistant. Provide precise, actionable debugging analysis. Always format code clearly and output strictly JSON.`;
+    const systemInstruction = `You are Helping Hand AI, an expert developer debugging assistant. Provide precise, actionable debugging analysis. Always preserve the user's programming language strictly. Output strictly JSON.`;
 
     const rawResponse = await callGeminiApi(prompt, systemInstruction);
     const cleanedJson = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleanedJson);
 
+    let finalFix = parsed.suggestedFix || ruleResult?.suggestedFix || codeText;
+    let finalOrig = parsed.originalCode || ruleResult?.originalCode || codeText || errorText;
+
+    // Run Validation Engine pipeline on Gemini output
+    let validation = validateFixResult({
+      originalCode: finalOrig,
+      suggestedFix: finalFix,
+      language: targetLang,
+      errorType: parsed.errorType || ruleResult?.errorType || 'Runtime Error',
+      hasExecutionSandbox: false
+    });
+
+    // If Gemini output failed language or syntax validation, fallback to Rule Engine fix!
+    if (!validation.testPassed && ruleResult?.suggestedFix) {
+      console.warn('Gemini fix failed language consistency check, falling back to rule engine patch.');
+      finalFix = ruleResult.suggestedFix;
+      finalOrig = ruleResult.originalCode;
+      validation = validateFixResult({
+        originalCode: finalOrig,
+        suggestedFix: finalFix,
+        language: targetLang,
+        errorType: ruleResult.errorType,
+        hasExecutionSandbox: false
+      });
+    }
+
     return {
       id: 'res-gemini-' + Date.now(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      language: parsed.language || ruleResult?.language || 'python',
-      detectedLanguage: parsed.language || ruleResult?.detectedLanguage,
+      language: targetLang,
+      detectedLanguage: targetLang,
       errorType: parsed.errorType || ruleResult?.errorType || 'Runtime Error',
       severity: parsed.severity || ruleResult?.severity || 'important',
       summary: parsed.summary || ruleResult?.summary || 'Analyzed code issue.',
@@ -78,31 +114,18 @@ Respond ONLY with valid JSON in this exact structure:
       rootCauseStatus: parsed.rootCauseStatus || ruleResult?.rootCauseStatus || 'likely',
       location: parsed.location || ruleResult?.location || { line: 1 },
       howToFix: parsed.howToFix || ruleResult?.howToFix || [],
-      originalCode: parsed.originalCode || ruleResult?.originalCode || codeText || errorText,
-      suggestedFix: parsed.suggestedFix || ruleResult?.suggestedFix || codeText,
-      fixedCode: parsed.suggestedFix || ruleResult?.fixedCode || codeText,
+      originalCode: finalOrig,
+      suggestedFix: finalFix,
+      fixedCode: finalFix,
       explainFix: parsed.explainFix || ruleResult?.explainFix || '',
       alternativeFixes: parsed.alternativeFixes || ruleResult?.alternativeFixes || [],
       preventionTips: parsed.preventionTips || ruleResult?.preventionTips || [],
-      validation: {
-        status: 'PASSED',
-        summary: 'Validated by Google Gemini AI & Rule Engine.',
-        parsed: true,
-        errorReproduced: true,
-        fixApplied: true,
-        testPassed: true,
-        logs: [
-          '✓ Google Gemini AI analysis completed',
-          '✓ Verified solution against language invariants',
-          '✓ Fix Validation: PASSED'
-        ]
-      },
+      validation,
       confidence: parsed.confidence || 'High',
       sourceEngine: 'hybrid'
     };
   } catch (err) {
     console.warn('Gemini API call failed, using rule engine fallback:', err);
-    // Fall back smoothly to rule result
     return ruleResult!;
   }
 }

@@ -28,7 +28,13 @@ export type SeverityLevel = 'informational' | 'warning' | 'important' | 'critica
 
 export type RootCauseConfidence = 'confirmed' | 'likely' | 'possible';
 
-export type ValidationStatus = 'PASSED' | 'FAILED' | 'PARTIALLY VALIDATED' | 'STATIC ANALYSIS ONLY' | 'UNABLE TO VALIDATE';
+export type ValidationStatus =
+  | 'FIX GENERATED'
+  | 'STATIC CHECK PASSED'
+  | 'TEST PASSED'
+  | 'TEST FAILED'
+  | 'PARTIALLY VALIDATED'
+  | 'VALIDATION UNAVAILABLE';
 
 export interface LocationInfo {
   file?: string;
